@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
@@ -25,7 +25,8 @@ interface CartItem {
   toppings: Topping[]
 }
 
-export default function CheckoutPage() {
+// 1. PINDAHKAN LOGIKA UTAMA KE KOMPONEN KONTEN KHUSUS
+function CheckoutContent() {
   const params = useParams()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -35,9 +36,7 @@ export default function CheckoutPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [mounted, setMounted] = useState(false)
 
-  // Ambil data keranjang dengan aman di dalam useEffect tanpa memicu amukan ESLint
   useEffect(() => {
-    // ✅ FIX ESLINT TOTAL: Pindahkan semua setState ke dalam micro-task asynchronous
     const timer = setTimeout(() => {
       setMounted(true)
       
@@ -54,13 +53,11 @@ export default function CheckoutPage() {
     return () => clearTimeout(timer)
   }, [tableId])
 
-  // Hitung Total Pembayaran keseluruhan (Harga Menu + Toppings)
   const totalPayment = cart.reduce((sum, item) => {
     const toppingsTotal = item.toppings.reduce((s, t) => s + t.price, 0)
     return sum + (item.price + toppingsTotal) * item.quantity
   }, 0)
 
-  // Mutasi untuk menembak API pembuatan Order baru ke Backend Railway
   const createOrderMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -104,7 +101,6 @@ export default function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-background pb-12">
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-card/80 backdrop-blur border-b">
         <div className="flex items-center gap-4 p-4">
           <Link href={`/table/${tableId}?branch=${branchId}`}>
@@ -120,7 +116,6 @@ export default function CheckoutPage() {
       </header>
 
       <main className="p-4 max-w-md mx-auto space-y-4">
-        {/* Rincian Item */}
         <Card>
           <CardHeader>
             <CardTitle className="text-md flex items-center gap-2">
@@ -164,7 +159,6 @@ export default function CheckoutPage() {
           </CardContent>
         </Card>
 
-        {/* Ringkasan Pembayaran */}
         <Card>
           <CardHeader>
             <CardTitle className="text-md flex items-center gap-2">
@@ -205,5 +199,21 @@ export default function CheckoutPage() {
         </Card>
       </main>
     </div>
+  )
+}
+
+// 2. BUNGKUS DENGAN SUSPENSE BOUNDARY DI EXPORT DEFAULT UTAMA
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="text-sm text-muted-foreground">Menyiapkan halaman checkout...</p>
+        </div>
+      </div>
+    }>
+      <CheckoutContent />
+    </Suspense>
   )
 }
