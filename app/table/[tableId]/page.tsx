@@ -13,7 +13,6 @@ import { RefreshCw } from 'lucide-react'
 import { apiRequest } from '@/lib/api'
 import type { Menu } from '@/types'
 
-// Definisikan tipe topping secara eksplisit agar konsisten
 interface Topping {
   id: string
   name: string
@@ -33,53 +32,63 @@ export default function TablePage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const tableId = params.tableId as string
-  const branchId = searchParams.get('branch')
+  const branchId = searchParams.get('branch') || '1'
 
   const [cartOpen, setCartOpen] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
 
-  const { data: menus, isLoading, error, refetch } = useQuery({
+  // KITA KEMBALIKAN KE /toast/menus KARENA BACKEND KAMU TERNYATA MASIH PAKAI PREFIX INI
+  const { data: responseMenus, isLoading, error, refetch } = useQuery({
     queryKey: ['menus', branchId],
     queryFn: async () => {
-      const queryParams = new URLSearchParams()
-      if (branchId) queryParams.append('branchId', branchId)
-      queryParams.append('available', 'true')
-      return apiRequest<Menu[]>(`/toast/menus?${queryParams.toString()}`)
+      try {
+        const queryParams = new URLSearchParams()
+        queryParams.append('branchId', branchId)
+        queryParams.append('available', 'true')
+        return await apiRequest<unknown>(`/toast/menus?${queryParams.toString()}`)
+      } catch (err) {
+        console.warn('Endpoint /toast/menus eror, mencoba fallback ke /menus...')
+        try {
+          return await apiRequest<unknown>(`/menus?branchId=${branchId}`)
+        } catch {
+          return null
+        }
+      }
     },
-    enabled: !!branchId,
   })
 
-  const { data: bestSellers } = useQuery({
+  const { data: responseBestSellers } = useQuery({
     queryKey: ['bestsellers', branchId],
     queryFn: async () => {
-      return apiRequest<Menu[]>(
-        `/toast/menus/bestsellers?branchId=${branchId}&limit=4`
-      )
+      try {
+        return await apiRequest<unknown>(`/toast/menus/bestsellers?branchId=${branchId}&limit=4`)
+      } catch (err) {
+        return null
+      }
     },
-    enabled: !!branchId,
     staleTime: 10 * 60 * 1000,
+    retry: false
   })
 
-  // ✅ Fix: toppings pakai tipe unknown[] agar sesuai dengan prop pada komponen
+  const getArrayData = (res: unknown): Menu[] => {
+    if (!res || typeof res !== 'object') return []
+    if (Array.isArray(res)) return res as Menu[]
+    const record = res as Record<string, unknown>
+    if ('data' in record && Array.isArray(record.data)) return record.data as Menu[]
+    return []
+  }
+
+  const menus = getArrayData(responseMenus)
+  const bestSellers = getArrayData(responseBestSellers)
+
   const addToCart = (menu: Menu, toppings: unknown[] = []) => {
     const toppingsTyped = toppings as Topping[]
-
     setCart(prev => {
       const existing = prev.find(item => item.menuId === menu.id)
       if (existing) {
-        return prev.map(item =>
-          item.menuId === menu.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
+        return prev.map(item => item.menuId === menu.id ? { ...item, quantity: item.quantity + 1 } : item)
       }
-      return [...prev, {
-        menuId: menu.id,
-        name: menu.name,
-        price: menu.price,
-        quantity: 1,
-        toppings: toppingsTyped,
-      }]
+      return [...prev, { menuId: menu.id, name: menu.name, price: menu.price, quantity: 1, toppings: toppingsTyped }]
     })
   }
 
@@ -87,9 +96,7 @@ export default function TablePage() {
     if (quantity <= 0) {
       setCart(prev => prev.filter(item => item.menuId !== menuId))
     } else {
-      setCart(prev => prev.map(item =>
-        item.menuId === menuId ? { ...item, quantity } : item
-      ))
+      setCart(prev => prev.map(item => item.menuId === menuId ? { ...item, quantity } : item))
     }
   }
 
@@ -108,11 +115,8 @@ export default function TablePage() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <EmptyState
           title="Tidak dapat memuat menu"
-          description="Periksa koneksi internet Anda atau coba refresh halaman"
-          action={{
-            label: 'Refresh',
-            onClick: () => refetch(),
-          }}
+          description="Periksa koneksi internet Anda"
+          action={{ label: 'Refresh', onClick: () => refetch() }}
         />
       </div>
     )
@@ -120,73 +124,36 @@ export default function TablePage() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-card/80 backdrop-blur border-b">
         <div className="flex items-center justify-between p-4">
           <div>
             <h1 className="text-xl font-bold text-primary">Toast Order</h1>
             <p className="text-sm text-muted-foreground">Meja #{tableId}</p>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
+          <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </header>
 
-      {/* ✅ Fix: gunakan Array.isArray + fallback [] agar tidak undefined */}
-      {Array.isArray(bestSellers) && bestSellers.length > 0 && (
-        <BestSellerSection
-          items={bestSellers}
-          onAddToCart={addToCart}
-        />
-      )}
+      {bestSellers.length > 0 && <BestSellerSection items={bestSellers} onAddToCart={addToCart} />}
 
-      {/* Menu Grid */}
       <main className="p-4">
         <h2 className="text-lg font-semibold mb-4">Semua Menu</h2>
-
         {isLoading ? (
           <MenuSkeleton />
-        ) : (menus ?? []).length === 0 ? (
-          <EmptyState
-            title="Menu belum tersedia"
-            description="Silakan hubungi staff untuk informasi lebih lanjut"
-          />
+        ) : menus.length === 0 ? (
+          <EmptyState title="Menu belum tersedia" description="Silakan hubungi staff" />
         ) : (
-          <MenuGrid
-            menus={menus ?? []}
-            onAddToCart={addToCart}
-          />
+          <MenuGrid menus={menus} onAddToCart={addToCart} />
         )}
       </main>
 
-      {/* Cart Drawer */}
-      <CartDrawer
-        isOpen={cartOpen}
-        onOpenChange={setCartOpen}
-        items={cart}
-        onUpdateQuantity={updateQuantity}
-        total={cartTotal}
-        onCheckout={handleCheckout}
-      />
+      <CartDrawer isOpen={cartOpen} onOpenChange={setCartOpen} items={cart} onUpdateQuantity={updateQuantity} total={cartTotal} onCheckout={handleCheckout} />
 
-      {/* Floating Cart Button */}
       {cart.length > 0 && (
-        <button
-          onClick={() => setCartOpen(true)}
-          className="fixed bottom-6 right-6 z-50 btn-primary rounded-full w-14 h-14 flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow"
-        >
-          <span className="text-lg font-bold">
-            {cart.reduce((sum, i) => sum + i.quantity, 0)}
-          </span>
-          <span className="absolute -top-2 -right-2 bg-destructive text-white text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold">
-            {cart.reduce((sum, i) => sum + i.quantity, 0)}
-          </span>
+        <button onClick={() => setCartOpen(true)} className="fixed bottom-6 right-6 z-50 bg-primary text-primary-foreground rounded-full w-14 h-14 flex items-center justify-center shadow-lg">
+          <span className="text-lg font-bold">{cart.reduce((sum, i) => sum + i.quantity, 0)}</span>
         </button>
       )}
     </div>
