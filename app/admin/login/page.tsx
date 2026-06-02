@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import type { ControllerRenderProps } from 'react-hook-form'
@@ -22,7 +22,7 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
-export default function LoginPage() {
+function LoginFormContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const from = searchParams.get('from') || '/admin/dashboard'
@@ -35,14 +35,11 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   })
 
- const onSubmit = async (data: LoginForm) => {
+  const onSubmit = async (data: LoginForm) => {
     setIsLoading(true)
     try {
-      // 1. Kirim data login ke backend resmi
       const response = await login.mutateAsync(data)
-      console.log('Response Login Mentah:', response) 
       
-      // ✅ FIX TYPE-SAFE: Membaca token secara aman tanpa menggunakan keyword 'any'
       let token = ''
       if (response && typeof response === 'object') {
         const record = response as Record<string, unknown>
@@ -59,119 +56,86 @@ export default function LoginPage() {
         }
       }
       
-      // 3. JIKA TOKEN KETEMU, KUNCI DI SEMUA LAREK MEMORI BROWSER
       if (token) {
-        console.log('Token JWT sukses ditangkap dan dikunci:', token)
-        
-        // Simpan dengan nama standar 'token' agar dibaca oleh middleware & api.ts
         Cookies.set('token', token, { expires: 7, path: '/' })
         localStorage.setItem('token', token)
         sessionStorage.setItem('token', token)
-
-        // Simpan juga dengan nama variasi 'accessToken' buat jaga-jaga
         Cookies.set('accessToken', token, { expires: 7, path: '/' })
         localStorage.setItem('accessToken', token)
-
-        toast.success('Login berhasil! Token resmi terpasang.')
+        toast.success('Login berhasil!')
       } else {
-        console.warn('Login sukses, tapi gagal membaca access_token dari backend.')
-        toast.error('Token tidak ditemukan dalam data response backend')
+        toast.error('Token tidak ditemukan')
       }
       
-      // 4. Alihkan ke dashboard
       setTimeout(() => {
-        router.push('/admin/dashboard')
+        router.push(from)
         router.refresh()
       }, 500)
       
     } catch (error: unknown) {
-      toast.error((error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Login gagal')
+      toast.error('Login gagal')
     } finally {
       setIsLoading(false)
     }
   }
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }: { field: ControllerRenderProps<LoginForm, 'email'> }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input type="email" placeholder="gacoan@resto.com" className="pl-10" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }: { field: ControllerRenderProps<LoginForm, 'password'> }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input type="password" placeholder="••••••••" className="pl-10" {...field} />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button type="submit" className="w-full" disabled={isLoading || login.isPending}>
+          {isLoading || login.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : 'Masuk'}
+        </Button>
+      </form>
+    </Form>
+  )
+}
+
+export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-secondary/10 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="text-4xl mb-2">🍽️</div>
           <CardTitle className="text-2xl">Toast Admin</CardTitle>
-          <CardDescription>
-            Masuk untuk mengelola restoran Anda
-          </CardDescription>
+          <CardDescription>Masuk untuk mengelola restoran Anda</CardDescription>
         </CardHeader>
-        
         <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              
-              {/* Field Email */}
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }: { field: ControllerRenderProps<LoginForm, 'email'> }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          type="email"
-                          placeholder="gacoan@resto.com" 
-                          className="pl-10"
-                          {...field} 
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              {/* Field Password */}
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }: { field: ControllerRenderProps<LoginForm, 'password'> }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          type="password" 
-                          placeholder="••••••••" 
-                          className="pl-10"
-                          {...field} 
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              {/* Tombol Submit */}
-              <Button 
-                type="submit" 
-                className="w-full bg-primary hover:brightness-95 text-primary-foreground font-medium py-2.5 px-5 rounded-lg transition-all duration-200 shadow-sm active:scale-[0.98]"
-                disabled={isLoading || login.isPending}
-              >
-                {isLoading || login.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Mengunci Token...
-                  </>
-                ) : (
-                  'Masuk'
-                )}
-              </Button>
-            </form>
-          </Form>
-          
-          <p className="text-center text-sm text-muted-foreground mt-6">
-             Demo credentials: gacoan@resto.com / gacoan123
-          </p>
+          {/* Pembungkus Suspense Krusial Agar Vercel Build Sukses */}
+          <Suspense fallback={<div className="text-center py-4">Memuat halaman...</div>}>
+            <LoginFormContent />
+          </Suspense>
         </CardContent>
       </Card>
     </div>
